@@ -2,10 +2,13 @@ use actix_web::{get, post, web, App, HttpResponse, HttpServer, Responder};
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
 use std::fs;
-// #[get("/")]
-// async fn hello() -> impl Responder {
-//     HttpResponse::Ok().body("Hello world!")
-// }
+use std::path::Path;
+use std::ffi::OsStr;
+
+#[get("/notes")]
+async fn get_notes() -> impl Responder {
+    HttpResponse::Ok().body("Hello world!")
+}
 
 // #[post("/create-note")]
 // async fn echo(req_body: String) -> impl Responder {
@@ -25,12 +28,14 @@ use std::fs;
 //     .await
 // }
 
+#[derive(Debug)]
 struct Note {
     title: String,
     note: String,
     id: u64
 }
 
+#[derive(Debug)]
 struct State {
     notes: Vec<Note>,
     updated_id: u64
@@ -38,6 +43,7 @@ struct State {
 
 impl State {
     fn create() -> State {
+        let mut fetched_notes: Vec<Note> = vec![];
         let mut file = OpenOptions::new()
             .read(true)
             .write(true)
@@ -47,28 +53,33 @@ impl State {
         for entry in fs::read_dir("./").unwrap() {
             let entry = entry.unwrap();
             let path = entry.path();
-            println!("{:?}", path);
-            if path.ends_with(".txt") {
-                let file_id_str = path.to_str().trim_end_matches(".txt");
-                match file_id_str.parse::<u64>() {
-                    Ok(id) => {
-                        let mut file_content = String::new();
-                        let mut file = fs::File::open(entry.path());
-                        if let Ok(file){
-                            file.read_to_string(&mut file_content);
+            if !path.is_dir() {
+                if let Some(path_str) = path.to_str() {
+                    if let Some(extension) = Path::new(path_str).extension().and_then(OsStr::to_str) {
+                        if extension == "txt" {
+                            if let Some(txt_file_name) = Path::new(path_str).file_stem().unwrap().to_str() {
+                                if let Ok(id) = txt_file_name.parse::<u64>() {
+                                    if let Ok(contents) = fs::read_to_string(path_str) {
+                                        let mut parts = contents.split('\n');
+                                        if let Some(title) = parts.next() {
+                                            if let Some(note) = parts.next() {
+                                                let note = Note {
+                                                    title: String::from(title),
+                                                    note: String::from(note),
+                                                    id
+                                                };
+                                                fetched_notes.push(note);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
-
-                        // let note = Note {
-                        //     id,
-                        //     notes: file_content,
-                        // };
-                        // notes.push(note);
                     }
-                    Err(_) => { /* Handle invalid ID */ }
                 }
             }
         }
-
+        
         match file {
             Ok(mut file) => {
                 let mut content = String::new();
@@ -87,10 +98,10 @@ impl State {
                         Ok(num) => num,
                         Err(_) => 0
                     };
-                    // @TODO: fetch all notes
+                    // @TODO: fetch all fetched_notes
                     State {
                         updated_id: id,
-                        notes: vec![]
+                        notes: fetched_notes
                     }
                 }
             }
@@ -116,7 +127,7 @@ fn create_note (title: String, note: String, mut state: State) -> Result<State, 
                 Err(err) => return Err(err)
             };
         
-            match file.write_all(format!("{}\n{}", title, note).as_bytes()){
+            match file.write_all(format!("{}", note).as_bytes()){
                 Ok(_) => {
                     // Create note part
                     let new_note = Note{
@@ -126,7 +137,6 @@ fn create_note (title: String, note: String, mut state: State) -> Result<State, 
                     };
                     state.notes.push(new_note);
                     state.updated_id += 1;
-                    println!("Updated ID: {}", state.updated_id);
                     // Save the state
                     let mut state_file = match File::create("state.txt") {
                         Ok(mut file) => {
@@ -146,6 +156,7 @@ fn create_note (title: String, note: String, mut state: State) -> Result<State, 
 
 fn main() {
     let state = State::create();
+    println!("{:?}", state);
     let title = String::from("Title");
     let note = String::from("Hello, world!1");
     create_note(
